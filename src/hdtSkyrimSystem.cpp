@@ -152,7 +152,43 @@ namespace hdt
 			}
 		}
 
+		if (timeStep > RESET_PHYSICS && !this->block_resetting) {
+			timeStep = absorbDiscontinuity(timeStep);
+		} else {
+			m_discontinuityGuard.restart(rootTransform());
+		}
+
 		m_oldRoot = hdt::make_nismart(newRoot);
+		return timeStep;
+	}
+
+	btTransform SkyrimSystem::rootTransform() const
+	{
+		return btTransform(convertNi(m_skeleton->world.rotate), convertNi(m_skeleton->world.translate));
+	}
+
+	float SkyrimSystem::absorbDiscontinuity(float timeStep)
+	{
+		const auto finding = m_discontinuityGuard.inspect(m_bones, rootTransform(), timeStep, SkyrimPhysicsWorld::get()->m_discontinuity);
+		if (finding.action == DiscontinuityGuard::Action::kNone) {
+			return timeStep;
+		}
+
+		logger::debug(
+			"discontinuity on {}: {} (root {:.0f} units/s, {:.0f} deg/s, {} of {} animated bones snapped)",
+			m_skeleton->parent ? m_skeleton->parent->name.c_str() : m_skeleton->name.c_str(),
+			finding.action == DiscontinuityGuard::Action::kRestart ? "restarted" : "carried",
+			finding.rootSpeed,
+			finding.turnSpeed,
+			finding.snappedBones,
+			finding.animatedBones);
+
+		m_lastRootRotation = convertNi(m_skeleton->world.rotate);
+		if (finding.action == DiscontinuityGuard::Action::kRestart) {
+			updateTransformUpDown(m_skeleton.get(), true);
+			return RESET_PHYSICS;
+		}
+
 		return timeStep;
 	}
 
